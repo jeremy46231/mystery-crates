@@ -7,12 +7,13 @@ function random(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min
 }
 
-const itemBlacklist = ['gp']
-function calculateWeight(item: ItemInstance): number {
-  const info = getItemInfo(item.itemId)
-  const quantityFactor = Math.sqrt(item.quantity ?? 0)
+// prettier-ignore
+const items = ['Acorn','Aluminum','Aluminum Ore','Anvil','Apple','Axe','Banana','Banana Bread','Bone','Bone Dust','Bonsai','Bowl','Bread','Brick','Butter','Cake','Carrot','Carrot Cake','Cat Hat','Cement','Cheese','Chisel','Churn','Clam','Clay','Cloth','Coal','Coal Dust','Coconut','Cool Shoes','Cotton','Crab','Diamond','Diamond Dust','Diamond Ring','Egg','Emerald','Emerald Dust','Emerald Ring','Fancy Pants','Fashionable Shirt','File','Firewood','Fish','Fish Hat','Fishhook','Fishing Rod','Flax','Flour','Fruit Salad','Furnace','Glass','Glue','Gold','Gold Ore','Gold Wire','Grapes','Grass Seeds','Hairball','Hammer','Hat','Iron','Iron Ore','Iron Wire','Kiwi','Knife','Knitting Needles','Koder Koin','Ladder','Limestone','Log','Loom','Lumber','Mandrel','Milk','Mushroom','Needle','Onion','Orange','Pants','Pickaxe','Pot','Potato','Pottery Wheel','Range','Raw Diamond','Raw Emerald','Raw Ruby','Raw Sapphire','Raw Tanzanite','Rice','Rock','Rolling Mill','Rope','Ruby','Ruby Dust','Ruby Ring','Salt','Sand','Sapphire','Sapphire Dust','Sapphire Ring','Saw','Scythe','Shears','Shirt','Shoes','Shovel','Shurt','Socks','Spinning Wheel','Stew','Stick','Stone Mill','String','Sugar','Sugarcane','Tanzanite','Tanzanite Dust','Tanzanite Ring','Thread','Top Hat','Trowel','Vessel','Water','Wheat','Wheat Seeds','Wheel','Wool','Yarn','gp']
+
+function calculateWeight(item: string): number {
+  const info = getItemInfo(item)
   const priceFactor = (Math.pow(0.98, info?.intended_value_gp ?? 100) + 1) / 2
-  return Math.max(0, quantityFactor * priceFactor)
+  return Math.max(0, priceFactor)
 }
 function crateSize() {
   const rand = Math.random()
@@ -22,30 +23,22 @@ function crateSize() {
 // generate 3 random "crates" with random items
 // each crate should have 5-7 items
 export async function generateCrates(): Promise<crate[]> {
-  const inventory = await bag.getInventory({
-    identityId: 'U05KCRSJXH9',
-    available: true,
-  })
   const crates: crate[] = []
   for (let i = 0; i < 3; i++) {
     const targetValue = crateSize()
-    const crate = generateCrate(inventory, targetValue)
+    const crate = generateCrate(targetValue)
     crates.push(crate)
   }
 
   return crates
 }
 
-const generateCrate = (
-  inventory: ItemInstance[],
-  targetValue: number,
-  itemCap = 10
-): crate => {
+const generateCrate = (targetValue: number, itemCap = 10): crate => {
   const crate: crate = new Map()
   let totalValue = 0
 
   while (totalValue < targetValue && crate.size < itemCap) {
-    const totalWeight = inventory.reduce(
+    const totalWeight = items.reduce(
       (sum, item) => sum + calculateWeight(item),
       0
     )
@@ -53,22 +46,13 @@ const generateCrate = (
 
     const randomWeight = Math.random() * totalWeight
     let accumulatedWeight = 0
-    for (const item of inventory) {
+    for (const item of items) {
       accumulatedWeight += calculateWeight(item)
       if (randomWeight <= accumulatedWeight) {
-        const info = getItemInfo(item.itemId)
-        if (
-          !item.itemId ||
-          itemBlacklist.includes(item.itemId) ||
-          !info ||
-          info.tradable === false
-        ) {
-          continue
-        }
-        crate.set(item.itemId, (crate.get(item.itemId) ?? 0) + 1)
+        const info = getItemInfo(item)
+        crate.set(item, (crate.get(item) ?? 0) + 1)
 
-        item.quantity = (item.quantity ?? 0) - 1
-        totalValue += getItemInfo(item.itemId)?.intended_value_gp ?? 0
+        totalValue += getItemInfo(item)?.intended_value_gp ?? 0
 
         break
       }
