@@ -6,109 +6,87 @@ import {
   crateValue,
   type crate,
 } from './crates'
-import { getItemInfo } from './bag'
+import {
+  addSlackBagMessageListener,
+  bag,
+  chargeUser,
+  getItemInfo,
+  giveItems,
+} from './bag'
+import { addSlackActionListener, createEventPromise } from './slackActions'
 
 const app = new Slack.App({
   ...env.slack,
   socketMode: true,
 })
 
-type eventPromise<Args extends unknown = any> = {
-  date: Date
-  authorizedUser?: string
-  expectedType?: Slack.SlackActionMiddlewareArgs['action']['type']
-  resolve: (args?: Args) => void
-}
-const closures = new Map<string, eventPromise>()
-function createEventPromise<Action extends Slack.SlackAction>(
-  authorizedUser?: string,
-  expectedType?: Slack.SlackActionMiddlewareArgs['action']['type']
-) {
-  const id = String(Math.round(Math.random() * 1e9))
-  const promise = new Promise<Slack.SlackActionMiddlewareArgs<Action>>(
-    (resolve) => {
-      closures.set(id, {
-        date: new Date(),
-        authorizedUser,
-        expectedType,
-        resolve,
-      })
-    }
-  )
-  return [id, promise] as const
-}
-app.action({}, async (params) => {
-  if (!('action_id' in params.action))
-    throw new Error(
-      `Don't know how to handle action ${params.action.type} without an action_id`
-    )
-  const promise = closures.get(params.action.action_id)
-  const showError = async (message: string) => {
-    await params.ack()
-    if (params.body.channel && params.body.channel.id) {
-      await params.client.chat.postEphemeral({
-        channel: params.body.channel.id,
-        user: params.body.user.id,
-        text: message,
-      })
-      return
-    }
-    await params.client.chat.postMessage({
-      channel: params.body.user.id,
-      text: message,
-    })
-  }
+await addSlackBagMessageListener(app)
+await addSlackActionListener(app)
 
-  if (!promise) return await showError('This action has expired')
-  if (promise.expectedType && promise.expectedType !== params.action.type) {
-    await showError(
-      `Expected action type ${promise.expectedType}, but got ${params.action.type}`
-    )
-    throw new Error(
-      `Expected action type ${promise.expectedType}, but got ${params.action.type}`
-    )
-  }
-  if (
-    promise.authorizedUser &&
-    params.body.user.id !== promise.authorizedUser
-  ) {
-    return await showError('You are not authorized to perform this action')
-  }
-
-  promise.resolve(params)
-})
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
+const botID = (await app.client.auth.test()).user_id
+if (!botID) throw new Error('Could not get bot ID')
 
 ///////////////////////////////
 ////////// Main code //////////
 ///////////////////////////////
 
 app.event('app_mention', async ({ event, client }) => {
+  if (event.subtype) return // Ignore mentions from other bots
+
   const userID = event.user
+  if (!userID) throw new Error('No user ID in event')
   const messageInfo = {
     username: 'Zara',
     channel: event.channel,
     thread_ts: event.ts,
   }
 
-  const crates = await generateCrates()
+  const crates = await generateCrates(botID)
+  if (!crates) {
+    const noItemsMessage =
+      "_Zara looks at you apolegetially._ I'm sorry, it seems I don't have any trinkets to offer you today."
+    await client.chat.postMessage({
+      ...messageInfo,
+      text: noItemsMessage.replace(/_/g, ''),
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: noItemsMessage,
+          },
+        },
+        {
+          type: 'context',
+          elements: [
+            {
+              type: 'mrkdwn',
+              text: `Please let <@U06UYA5GMB5> know that <@${botID}> is out of stock.`,
+            },
+          ],
+        },
+      ],
+    })
+    return
+  }
+
   const values = crates.map(crateValue)
   const averageValue = values.reduce((a, b) => a + b, 0) / values.length
   const maxValue = Math.max(...values)
 
-  const cost = Math.round((averageValue + maxValue) / 2)
+  // const cost = Math.max(Math.round((averageValue + maxValue) / 2), 50)
+  const cost = Math.round(
+    Math.max(maxValue * 0.9, Math.min(1.1 * averageValue, maxValue), 35)
+  )
 
-  const generateHintPromise = generateCrateHint(crates)
+  console.log('Values:', values, 'Average:', averageValue, 'Max:', maxValue, 'Cost:', cost)
+  console.log('Crates:', ...crates.entries())
+
+  //const generateHintPromise = generateCrateHint(crates)
 
   const costMessage = `_Zara eyes the player with a sly smile, her green hat tilting slightly._ Curiosity comes at a price. _Her voice is almost a whisper._ A few coins, and the game is yours.`
-  const [payButtonId, payButtonPromise] = createEventPromise<
-    Slack.BlockAction<Slack.ButtonAction>
-  >(userID, 'button')
 
-  await client.chat.postMessage({
+  const payMessage = await client.chat.postMessage({
     ...messageInfo,
     text: `${costMessage.replace(/_/g, '')}\nPay ${cost} gp`,
     blocks: [
@@ -120,36 +98,53 @@ app.event('app_mention', async ({ event, client }) => {
         },
       },
       {
-        type: 'actions',
-        elements: [
-          {
-            type: 'button',
-            text: {
-              type: 'plain_text',
-              text: `:-gp: ${cost}`,
-              emoji: true,
-            },
-            action_id: payButtonId,
-          },
-        ],
-      },
-      {
         type: 'context',
         elements: [
           {
             type: 'mrkdwn',
-            text: `Note: I haven't gotten write permissions set up, so this won't charge you or give you any items yet.`,
+            text: `Accept the offer in your DMs to pay ${cost} :-gp:`,
           },
         ],
       },
     ],
   })
 
-  const payButtonResponse = await payButtonPromise
-  payButtonResponse.ack()
+  const result = await chargeUser(userID, cost)
+  if (!result.accepted) {
+    let errorMessage = `> An error occurred when trying to charge you ${cost} :-gp:`
+    if (result.reason === 'target_insufficient_items') {
+      errorMessage = `> You don't have enough gp to pay ${cost} :-gp:`
+    }
+    if (result.reason === 'user_declined') {
+      errorMessage = `> You declined the offer to pay ${cost} :-gp:`
+    }
+    client.chat.update({
+      ...messageInfo,
+      ts: payMessage.ts!,
+      text: errorMessage,
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: costMessage,
+          },
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: errorMessage,
+          },
+        },
+      ],
+    })
+    return
+  }
 
-  payButtonResponse.respond({
-    replace_original: true,
+  client.chat.update({
+    ...messageInfo,
+    ts: payMessage.ts!,
     text: costMessage.replace(/_/g, ''),
     blocks: [
       {
@@ -295,15 +290,15 @@ app.event('app_mention', async ({ event, client }) => {
   const selectedCrateValue = crateValue(selectedCrate)
 
   const makeCrateContentsBlocks = (crate: crate) => [
-    ...[...crate.entries()].map(([itemId, quantity]) => {
-      const itemInfo = getItemInfo(itemId)
+    ...[...crate.entries()].map(([itemID, quantity]) => {
+      const itemInfo = getItemInfo(itemID)
       return {
         type: 'section',
         text: {
           type: 'mrkdwn',
           text: `${quantity !== 1 ? `${quantity}x ` : ''}:${
             itemInfo?.tag
-          }: ${itemId}, _worth about ${
+          }: ${itemID}, _worth about ${
             (itemInfo?.intended_value_gp ?? NaN) * quantity
           } gp${quantity !== 1 ? ' each' : ''}_`,
         },
@@ -319,6 +314,68 @@ app.event('app_mention', async ({ event, client }) => {
       ],
     },
   ]
+
+  const itemsToGive = [...selectedCrate.entries()].map(
+    ([itemID, quantity]) => ({ itemID, quantity })
+  )
+  const hadEnoughItems = await giveItems(userID, itemsToGive)
+
+  if (!hadEnoughItems) {
+    const notEnoughItemsMessage = `_One by one, the items in the ${
+      ['first', 'second', 'third'][selectedCrateIndex]
+    } crate inexplicably vanish. Zara raises an eyebrow._ Interesting. _Zara hands you your ${cost} :-gp: back._`
+    await client.chat.postMessage({
+      ...messageInfo,
+      text: notEnoughItemsMessage.replace(/_/g, ''),
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: notEnoughItemsMessage,
+          },
+        },
+        {
+          type: 'context',
+          elements: [
+            {
+              type: 'mrkdwn',
+              text: `The items originally selected for you are no longer available, someone else must have taken them.`,
+            },
+          ],
+        },
+      ],
+    })
+    const refundSuccessful = await giveItems(userID, [
+      { itemID: 'gp', quantity: cost },
+    ])
+    if (!refundSuccessful) {
+      const refundFailedMessage = `_Zara looks at you apolegetially._ I'm sorry, I couldn't return your ${cost} :-gp:`
+      await client.chat.postMessage({
+        ...messageInfo,
+        text: refundFailedMessage.replace(/_/g, ''),
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: refundFailedMessage,
+            },
+          },
+          {
+            type: 'context',
+            elements: [
+              {
+                type: 'mrkdwn',
+                text: `The bot doesn't have enough :-gp: to refund you, either. This shouldn't happen. Please let <@U06UYA5GMB5> know that <@${botID}> couldn't refund ${cost} :-gp:.`,
+              },
+            ],
+          },
+        ],
+      })
+    }
+    return
+  }
 
   client.chat.update({
     ...messageInfo,
@@ -378,7 +435,9 @@ app.event('app_mention', async ({ event, client }) => {
           type: 'header',
           text: {
             type: 'plain_text',
-            text: `Crate ${i + 1}${i === selectedCrateIndex ? ' (selected)' : ''}`,
+            text: `Crate ${i + 1}${
+              i === selectedCrateIndex ? ' (selected)' : ''
+            }`,
           },
         },
         {

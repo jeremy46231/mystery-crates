@@ -18,6 +18,7 @@ const bag = {
   appId: Number(getEnv('BAG_APP_ID')),
   key: getEnv('BAG_APP_TOKEN'),
 }
+const bagAccountID = getEnv('BAG_ACCOUNT_ID')
 
 const geminiProxy = {
   apiKey: getEnv('GEMINI_API_KEY'),
@@ -28,4 +29,4 @@ const openAIGateway = {
   baseURL: getEnv('OPENAI_GATEWAY_BASE_URL'),
 }
 
-export default { slack, bag, geminiProxy, openAIGateway }
+export default { slack, bag, bagAccountID, geminiProxy, openAIGateway }

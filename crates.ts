@@ -1,4 +1,5 @@
 import { bag, getItemInfo, ItemInstance } from './bag'
+import env from './env'
 import { chatCompletionsCreate } from './openai'
 
 export type crate = Map<string, number>
@@ -10,49 +11,70 @@ function random(min: number, max: number) {
 // prettier-ignore
 const items = ['Acorn','Aluminum','Aluminum Ore','Anvil','Apple','Axe','Banana','Banana Bread','Bone','Bone Dust','Bonsai','Bowl','Bread','Brick','Butter','Cake','Carrot','Carrot Cake','Cat Hat','Cement','Cheese','Chisel','Churn','Clam','Clay','Cloth','Coal','Coal Dust','Coconut','Cool Shoes','Cotton','Crab','Diamond','Diamond Dust','Diamond Ring','Egg','Emerald','Emerald Dust','Emerald Ring','Fancy Pants','Fashionable Shirt','File','Firewood','Fish','Fish Hat','Fishhook','Fishing Rod','Flax','Flour','Fruit Salad','Furnace','Glass','Glue','Gold','Gold Ore','Gold Wire','Grapes','Grass Seeds','Hairball','Hammer','Hat','Iron','Iron Ore','Iron Wire','Kiwi','Knife','Knitting Needles','Koder Koin','Ladder','Limestone','Log','Loom','Lumber','Mandrel','Milk','Mushroom','Needle','Onion','Orange','Pants','Pickaxe','Pot','Potato','Pottery Wheel','Range','Raw Diamond','Raw Emerald','Raw Ruby','Raw Sapphire','Raw Tanzanite','Rice','Rock','Rolling Mill','Rope','Ruby','Ruby Dust','Ruby Ring','Salt','Sand','Sapphire','Sapphire Dust','Sapphire Ring','Saw','Scythe','Shears','Shirt','Shoes','Shovel','Shurt','Socks','Spinning Wheel','Stew','Stick','Stone Mill','String','Sugar','Sugarcane','Tanzanite','Tanzanite Dust','Tanzanite Ring','Thread','Top Hat','Trowel','Vessel','Water','Wheat','Wheat Seeds','Wheel','Wool','Yarn','gp']
 
-function calculateWeight(item: string): number {
-  const info = getItemInfo(item)
-  const priceFactor = (Math.pow(0.98, info?.intended_value_gp ?? 100) + 1) / 2
-  return Math.max(0, priceFactor)
+function calculateWeight(item: ItemInstance): number {
+  const info = getItemInfo(item.itemId ?? '')
+  if (!info || !item.quantity || !info.intended_value_gp) return 0
+
+  // const priceFactor = (Math.pow(0.98, info.intended_value_gp ?? 100) + 1) / 2
+  const priceFactor = Math.pow(0.99, info.intended_value_gp)
+  const quantityFactor = item.quantity
+
+  return Math.max(0, priceFactor * quantityFactor)
 }
 function crateSize() {
   const rand = Math.random()
-  return Math.floor(200 * Math.pow(rand, 50) + 200 * Math.pow(rand, 2) + 100)
+  return Math.floor(60 * Math.pow(rand, 50) + 60 * Math.pow(rand, 2) + 20)
 }
 
 // generate 3 random "crates" with random items
 // each crate should have 5-7 items
-export async function generateCrates(): Promise<crate[]> {
+export async function generateCrates(botID: string): Promise<crate[] | null> {
+  const fullInventory = await bag.getInventory({
+    identityId: env.bagAccountID,
+    available: true,
+  })
+  const inventory = fullInventory.filter(
+    (item) => item.itemId && items.includes(item.itemId)
+  )
   const crates: crate[] = []
   for (let i = 0; i < 3; i++) {
     const targetValue = crateSize()
-    const crate = generateCrate(targetValue)
+    const crate = generateCrate(inventory, targetValue)
+    if (crate === null) return null
     crates.push(crate)
   }
 
   return crates
 }
 
-const generateCrate = (targetValue: number, itemCap = 10): crate => {
+const generateCrate = (
+  inventory: ItemInstance[],
+  targetValue: number,
+  itemCap = 10
+): crate | null => {
   const crate: crate = new Map()
   let totalValue = 0
 
   while (totalValue < targetValue && crate.size < itemCap) {
-    const totalWeight = items.reduce(
+    const totalWeight = inventory.reduce(
       (sum, item) => sum + calculateWeight(item),
       0
     )
-    if (totalWeight === 0) break
+    if (totalWeight === 0) return null
 
     const randomWeight = Math.random() * totalWeight
     let accumulatedWeight = 0
-    for (const item of items) {
+    for (const item of inventory) {
       accumulatedWeight += calculateWeight(item)
       if (randomWeight <= accumulatedWeight) {
-        const info = getItemInfo(item)
-        crate.set(item, (crate.get(item) ?? 0) + 1)
+        const info = getItemInfo(item.itemId)
+        if (!item.itemId || !info) {
+          continue
+        }
+        crate.set(item.itemId, (crate.get(item.itemId) ?? 0) + 1)
 
-        totalValue += getItemInfo(item)?.intended_value_gp ?? 0
+        item.quantity = (item.quantity ?? 0) - 1
+        totalValue += info.intended_value_gp
 
         break
       }
@@ -69,17 +91,17 @@ const generateCrate = (targetValue: number, itemCap = 10): crate => {
   return sortedCrate
 }
 export function crateValue(crate: crate): number {
-  return [...crate.entries()].reduce((sum, [itemId, quantity]) => {
-    const itemInfo = getItemInfo(itemId)
+  return [...crate.entries()].reduce((sum, [itemID, quantity]) => {
+    const itemInfo = getItemInfo(itemID)
     return sum + (itemInfo?.intended_value_gp ?? 0) * quantity
   }, 0)
 }
 export async function generateCrateHint(crates: crate[]): Promise<string> {
   const itemString = crates
     .map((crate, i) => {
-      const itemStrings = [...crate.entries()].map(([itemId, quantity]) => {
-        const itemInfo = getItemInfo(itemId)
-        return `- ${quantity !== 1 ? `${quantity}x ` : ''}${itemId}\n  Worth ${
+      const itemStrings = [...crate.entries()].map(([itemID, quantity]) => {
+        const itemInfo = getItemInfo(itemID)
+        return `- ${quantity !== 1 ? `${quantity}x ` : ''}${itemID}\n  Worth ${
           itemInfo?.intended_value_gp ?? NaN * quantity
         } gp${quantity !== 1 ? ' each' : ''}\n  ${itemInfo?.description}`
       })
