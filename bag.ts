@@ -140,7 +140,7 @@ export async function giveItems(
   userID: string,
   items: { itemID: string; quantity: number }[]
 ) {
-  const inventory = await bag.getInventory({ identityId: userID })
+  const inventory = await bag.getInventory({ identityId: bagAccountID })
 
   const instances: { id: number; quantity: number }[] = []
 
@@ -162,7 +162,6 @@ export async function giveItems(
 
     instances.push({ id: instance.id, quantity: item.quantity })
   }
-
   await bag.runGive({
     giverId: bagAccountID,
     receiverId: userID,

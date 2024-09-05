@@ -80,7 +80,7 @@ app.event('app_mention', async ({ event, client }) => {
   )
 
   console.log('Values:', values, 'Average:', averageValue, 'Max:', maxValue, 'Cost:', cost)
-  console.log('Crates:', ...crates.entries())
+  console.log('Crates:', ...crates.values())
 
   const generateHintPromise = generateCrateHint(crates)
 
