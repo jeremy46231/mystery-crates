@@ -82,7 +82,7 @@ app.event('app_mention', async ({ event, client }) => {
   console.log('Values:', values, 'Average:', averageValue, 'Max:', maxValue, 'Cost:', cost)
   console.log('Crates:', ...crates.entries())
 
-  //const generateHintPromise = generateCrateHint(crates)
+  const generateHintPromise = generateCrateHint(crates)
 
   const costMessage = `_Zara eyes the player with a sly smile, her green hat tilting slightly._ Curiosity comes at a price. _Her voice is almost a whisper._ A few coins, and the game is yours.`
 
