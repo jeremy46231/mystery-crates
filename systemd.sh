@@ -55,6 +55,10 @@ start_service() {
   echo "Service started."
 }
 
+view_logs() {
+  journalctl --user -u "$SERVICE_NAME" -f
+}
+
 # Check command-line arguments
 case "$1" in
   install)
@@ -69,7 +73,10 @@ case "$1" in
   start)
     start_service
     ;;
+  logs)
+    view_logs
+    ;;
   *)
-    echo "Usage: $0 {install|update|stop|start}"
+    echo "Usage: $0 {install|update|stop|start|logs}"
     ;;
 esac
