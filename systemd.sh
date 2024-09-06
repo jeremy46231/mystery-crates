@@ -4,8 +4,6 @@ SERVICE_FILE="$HOME/.config/systemd/user/mystery-crates.service"
 CURRENT_DIR=$(pwd)
 SERVICE_NAME="mystery-crates"
 SYSTEMCTL="systemctl --user"
-ENV_FILE=".env"
-ENV_EXAMPLE_FILE=".env.example"
 
 # The service file content with the current directory substituted
 SERVICE_CONTENT="[Unit]
@@ -25,20 +23,7 @@ SyslogIdentifier=${SERVICE_NAME}
 [Install]
 WantedBy=default.target"
 
-check_env_file() {
-  # Check if .env file exists and is different from .env.example
-  if [[ ! -f "$ENV_FILE" || "$(diff -q "$ENV_FILE" "$ENV_EXAMPLE_FILE")" ]]; then
-    echo ".env file is missing or identical to .env.example."
-    echo "Copying .env.example to .env. Please fill it out before proceeding."
-    cp "$ENV_EXAMPLE_FILE" "$ENV_FILE"
-    exit 1
-  fi
-}
-
 install_service() {
-  # Ensure the .env file is present and different
-  check_env_file
-
   # Create ~/.config/systemd/user if it doesn't exist
   mkdir -p "$(dirname "$SERVICE_FILE")"
 
@@ -54,9 +39,6 @@ install_service() {
 }
 
 update_service() {
-  # Ensure the .env file is present and different
-  check_env_file
-
   echo "Updating the repository..."
   git pull
   echo "Restarting the service..."
@@ -69,9 +51,6 @@ stop_service() {
 }
 
 start_service() {
-  # Ensure the .env file is present and different
-  check_env_file
-
   $SYSTEMCTL start "$SERVICE_NAME"
   echo "Service started."
 }
