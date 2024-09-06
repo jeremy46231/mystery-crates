@@ -79,7 +79,16 @@ app.event('app_mention', async ({ event, client }) => {
     Math.max(maxValue * 0.9, Math.min(1.1 * averageValue, maxValue), 35)
   )
 
-  console.log('Values:', values, 'Average:', averageValue, 'Max:', maxValue, 'Cost:', cost)
+  console.log(
+    'Values:',
+    values,
+    'Average:',
+    averageValue,
+    'Max:',
+    maxValue,
+    'Cost:',
+    cost
+  )
   console.log('Crates:', ...crates.values())
 
   const generateHintPromise = generateCrateHint(crates)
@@ -298,9 +307,9 @@ app.event('app_mention', async ({ event, client }) => {
           type: 'mrkdwn',
           text: `${quantity !== 1 ? `${quantity}x ` : ''}:${
             itemInfo?.tag
-          }: ${itemID}, _worth about ${
-            (itemInfo?.intended_value_gp ?? NaN) * quantity
-          } gp${quantity !== 1 ? ' each' : ''}_`,
+          }: ${itemID}, _worth about ${itemInfo?.intended_value_gp ?? NaN} gp${
+            quantity !== 1 ? ' each' : ''
+          }_`,
         },
       }
     }),

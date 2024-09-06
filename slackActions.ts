@@ -48,7 +48,7 @@ export async function addSlackActionListener(app: Slack.App) {
         text: message,
       })
     }
-  
+
     if (!promise) return await showError('This action has expired')
     if (promise.expectedType && promise.expectedType !== params.action.type) {
       await showError(
@@ -64,7 +64,7 @@ export async function addSlackActionListener(app: Slack.App) {
     ) {
       return await showError('You are not authorized to perform this action')
     }
-  
+
     promise.resolve(params)
     closures.delete(params.action.action_id)
   })

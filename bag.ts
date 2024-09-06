@@ -149,7 +149,9 @@ export async function giveItems(
       (instance) => instance.itemId === item.itemID
     )
     if (!instance || !instance.id) {
-      console.error(`Item ${item.itemID} not found in inventory to give to ${userID}`)
+      console.error(
+        `Item ${item.itemID} not found in inventory to give to ${userID}`
+      )
       return false
     }
 
